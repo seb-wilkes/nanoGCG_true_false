@@ -31,12 +31,14 @@ class GCGConfig:
     custom_loss_func: Optional[callable] = None
     loss_stopping_criteria: Optional[float] = -torch.inf # usually a loss value to stop the run if reached
     special_tokens_to_append: Optional[torch.Tensor] = None # special embeddings to be used in the special mode; must be a tensor of shape (n_special_tokens)
+    custom_score_func: Optional[callable] = None
 
 @dataclass
 class GCGResult:
     best_loss: float
     best_string: str
     losses: List[float]
+    scores: List[float]
     strings: List[str]
 
 class AttackBuffer:
@@ -169,6 +171,7 @@ class GCG:
         # Next we assign the custom loss function if it is provided by the user
         # Note, that the custom loss function should take logits as input and return a loss tensor
         self.custom_loss_func = config.custom_loss_func
+        self.custom_score_func = config.custom_score_func or (lambda x: x)  # Default to identity function if not provided
         self.stopping_point = config.loss_stopping_criteria
         self.stopping_flag = False # flag to stop the run if the loss is below a certain value
         
@@ -236,6 +239,7 @@ class GCG:
         optim_ids = buffer.get_best_ids()
 
         losses = []
+        scores = []
         optim_strings = []
         
         for i in tqdm(range(config.num_steps)):
@@ -283,10 +287,12 @@ class GCG:
                 )
 
                 current_loss = loss.min().item()
+                current_score = self.custom_score_func(current_loss)
                 optim_ids = sampled_ids[loss.argmin()].unsqueeze(0)
 
                 # Update the buffer based on the loss
                 losses.append(current_loss)
+                scores.append(current_score)
                 if buffer.size == 0 or current_loss < buffer.get_highest_loss():
                     buffer.add(current_loss, optim_ids)
                     
@@ -297,7 +303,7 @@ class GCG:
             optim_strings.append(optim_str)
 
             if not config.verbose:
-                print(f"step: {i+1}\noptim_str: {optim_str}\nloss: {current_loss}")
+                print(f"step: {i+1}\noptim_str: {optim_str}\nloss: {current_loss}\nscore: {current_score}")
             else:
                 print(f"step: {i+1}")
                 buffer.print_buffer(tokenizer)
@@ -306,8 +312,10 @@ class GCG:
 
         result = GCGResult(
             best_loss=losses[min_loss_index],
+            best_score=scores[min_loss_index],
             best_string=optim_strings[min_loss_index],
             losses=losses,
+            scores=scores,
             strings=optim_strings,
         )
 
