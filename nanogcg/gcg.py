@@ -302,12 +302,16 @@ class GCG:
             optim_ids = buffer.get_best_ids()
             optim_str = tokenizer.batch_decode(optim_ids)[0]
             optim_strings.append(optim_str)
+            
+            if config.verbose:
+                print(f"\noptim_str: {optim_str}\nloss: {current_loss}\nscore: {current_score}")
 
-            if not config.verbose:
-                print(f"step: {i+1}\noptim_str: {optim_str}\nloss: {current_loss}\nscore: {current_score}")
-            else:
-                print(f"step: {i+1}")
-                buffer.print_buffer(tokenizer)
+            # TODO: set up buffer properly to handle scores, and understand it
+            # if not config.verbose:
+            #     print(f"step: {i+1}\noptim_str: {optim_str}\nloss: {current_loss}\nscore: {current_score}")
+            # else:
+            #     print(f"step: {i+1}")
+            #     buffer.print_buffer(tokenizer)
 
         min_loss_index = losses.index(min(losses)) 
 
