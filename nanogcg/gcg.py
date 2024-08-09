@@ -29,7 +29,7 @@ class GCGConfig:
     seed: int = None
     verbose: bool = False
     custom_loss_func: Optional[callable] = None
-    loss_stopping_criteria: Optional[float] = torch.inf # usually a loss value to stop the run if reached
+    loss_stopping_criteria: Optional[float] = -torch.inf # usually a loss value to stop the run if reached
 
 @dataclass
 class GCGResult:
