@@ -25,5 +25,5 @@ dependencies = [
 packages = ["nanogcg"]
 
 [project.urls]
-Homepage = "https://github.com/GraySwanAI/nanoGCG"
+Homepage = "https://github.com/seb-wilkes/nanoGCG_true_false"
 Issues = "https://github.com/GraySwanAI/nanoGCG/issues"
