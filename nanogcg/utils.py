@@ -35,9 +35,9 @@ def get_nonascii_toks(tokenizer, device="cpu"):
 def mellowmax(t: Tensor, alpha=1.0, dim=-1):
    return 1.0 / alpha * (torch.logsumexp(alpha * t, dim=dim) - torch.log(torch.tensor(t.shape[-1], dtype=t.dtype, device=t.device)))
 
-def get_func_token_logits(token_list):
+def get_tokens_outputs_only(token_list):
     # only care for the last next-token prediction
-    f = lambda logits: logits[:, -1, token_list]
+    f = lambda activations: activations[:, -1, token_list]
     return f
 
 def question_loss(prob_true, prob_false, answer_direction, exponent=2.5):
@@ -45,12 +45,17 @@ def question_loss(prob_true, prob_false, answer_direction, exponent=2.5):
     return torch.pow(1.0-(prob_true * (1 - answer_direction) + prob_false * answer_direction ), exponent)
 
 def get_true_false_loss_func(true_token_list, false_token_list, correct_answer, exponent=2.5):
-    """Returns a loss function that takes logits and returns the loss."""
-    logits_true = get_func_token_logits(true_token_list)
-    logits_false = get_func_token_logits(false_token_list)
+    """Returns a loss function that takes logits and returns the loss."""    
+    
     answer_direction = 1 if correct_answer.lower() == "true" else 0
-    func = lambda logits: question_loss(softmax(logits_true(logits)), softmax(logits_false(logits)), answer_direction, exponent)
-    return func
+        
+    def restricted_loss_func(logits):
+        probabilities = softmax(logits, dim=-1)
+        prob_true = get_tokens_outputs_only(true_token_list)(probabilities)
+        prob_false = get_tokens_outputs_only(false_token_list)(probabilities)
+        return question_loss(prob_true, prob_false, answer_direction, exponent)
+
+    return restricted_loss_func
 
 # borrowed from https://github.com/huggingface/accelerate/blob/85a75d4c3d0deffde2fc8b917d9b1ae1cb580eb2/src/accelerate/utils/memory.py#L69
 def should_reduce_batch_size(exception: Exception) -> bool:
