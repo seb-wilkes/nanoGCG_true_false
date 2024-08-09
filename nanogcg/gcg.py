@@ -30,6 +30,7 @@ class GCGConfig:
     verbose: bool = False
     custom_loss_func: Optional[callable] = None
     loss_stopping_criteria: Optional[float] = -torch.inf # usually a loss value to stop the run if reached
+    special_tokens_to_append: Optional[torch.Tensor] = None # special embeddings to be used in the special mode; must be a tensor of shape (n_special_tokens)
 
 @dataclass
 class GCGResult:
@@ -170,6 +171,11 @@ class GCG:
         self.custom_loss_func = config.custom_loss_func
         self.stopping_point = config.loss_stopping_criteria
         self.stopping_flag = False # flag to stop the run if the loss is below a certain value
+        
+        
+        self.special_mode_flag = True if config.special_tokens_to_append is not None else False # flag to indicate if the model is in a special mode
+        if self.special_mode_flag:
+            self.special_extra_embeds = self.embedding_layer(config.special_tokens_to_append)
 
         if model.dtype in (torch.float32, torch.float64):
             print(f"WARNING: Model is in {model.dtype}. Use a lower precision data type, if possible, for much faster optimization.")
@@ -259,11 +265,18 @@ class GCG:
 
                 # Compute loss on all candidate sequences 
                 batch_size = new_search_width if config.batch_size is None else config.batch_size
-                input_embeds = torch.cat([
-                    embedding_layer(sampled_ids),
-                    after_embeds.repeat(new_search_width, 1, 1),
-                    target_embeds.repeat(new_search_width, 1, 1)
-                ], dim=1)
+                if not self.special_mode_flag:
+                    input_embeds = torch.cat([
+                        embedding_layer(sampled_ids),
+                        after_embeds.repeat(new_search_width, 1, 1),
+                        target_embeds.repeat(new_search_width, 1, 1)
+                    ], dim=1)
+                else:
+                    input_embeds = torch.cat([
+                        embedding_layer(sampled_ids),
+                        after_embeds.repeat(new_search_width, 1, 1),
+                        self.special_extra_embeds.repeat(new_search_width, 1, 1)
+                    ], dim=1)
                 loss = find_executable_batch_size(self.compute_candidates_loss, batch_size)(
                     input_embeds,
                     target_ids
@@ -374,7 +387,10 @@ class GCG:
         # (1, num_optim_tokens, vocab_size) @ (vocab_size, embed_dim) -> (1, num_optim_tokens, embed_dim)
         optim_embeds = optim_ids_onehot @ embedding_layer.weight
 
-        input_embeds = torch.cat([optim_embeds, self.after_embeds, self.target_embeds], dim=1)
+        if not self.special_mode_flag:
+            input_embeds = torch.cat([optim_embeds, self.after_embeds, self.target_embeds], dim=1)
+        else:
+            input_embeds = torch.cat([optim_embeds, self.after_embeds, self.special_extra_embeds], dim=1)
         output = model(inputs_embeds=input_embeds, past_key_values=self.prefix_cache)
         logits = output.logits
 
