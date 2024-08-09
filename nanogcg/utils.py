@@ -2,6 +2,7 @@ import functools
 import gc
 import inspect
 import torch
+from torch.nn.functional import softmax
 from torch import Tensor
 
 INIT_CHARS = [
@@ -33,6 +34,22 @@ def get_nonascii_toks(tokenizer, device="cpu"):
 
 def mellowmax(t: Tensor, alpha=1.0, dim=-1):
    return 1.0 / alpha * (torch.logsumexp(alpha * t, dim=dim) - torch.log(torch.tensor(t.shape[-1], dtype=t.dtype, device=t.device)))
+
+def get_func_token_logits(token_list):
+    f = lambda logits: logits[:, token_list]
+    return f
+
+def question_loss(prob_true, prob_false, answer_direction, exponent=2.5):
+    # answer direction gets flipped from original use case because goal is to flip
+    return torch.pow(1.0-(prob_true * (1 - answer_direction) + prob_false * answer_direction ), exponent)
+
+def get_true_false_loss_func(true_token_list, false_token_list, correct_answer, exponent=2.5):
+    """Returns a loss function that takes logits and returns the loss."""
+    logits_true = get_func_token_logits(true_token_list)
+    logits_false = get_func_token_logits(false_token_list)
+    answer_direction = 1 if correct_answer.lower() == "true" else 0
+    func = lambda logits: question_loss(softmax(logits_true(logits)), softmax(logits_false(logits)), answer_direction, exponent)
+    return func
 
 # borrowed from https://github.com/huggingface/accelerate/blob/85a75d4c3d0deffde2fc8b917d9b1ae1cb580eb2/src/accelerate/utils/memory.py#L69
 def should_reduce_batch_size(exception: Exception) -> bool:

@@ -28,6 +28,8 @@ class GCGConfig:
     add_space_before_target: bool = False
     seed: int = None
     verbose: bool = False
+    custom_loss_func: Optional[callable] = None
+    loss_stopping_criteria: Optional[float] = None # usually a loss value to stop the run if reached
 
 @dataclass
 class GCGResult:
@@ -154,7 +156,7 @@ class GCG:
         self, 
         model: transformers.PreTrainedModel,
         tokenizer: transformers.PreTrainedTokenizer,
-        config: GCGConfig
+        config: GCGConfig,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -162,6 +164,12 @@ class GCG:
 
         self.embedding_layer = model.get_input_embeddings()
         self.not_allowed_ids = None if config.allow_non_ascii else get_nonascii_toks(tokenizer, device=model.device)
+        
+        # Next we assign the custom loss function if it is provided by the user
+        # Note, that the custom loss function should take logits as input and return a loss tensor
+        self.custom_loss_func = config.custom_loss_func
+        self.stopping_point = config.loss_stopping_criteria
+        self.stopping_flag = False # flag to stop the run if the loss is below a certain value
 
         if model.dtype in (torch.float32, torch.float64):
             print(f"WARNING: Model is in {model.dtype}. Use a lower precision data type, if possible, for much faster optimization.")
@@ -225,6 +233,10 @@ class GCG:
         optim_strings = []
         
         for i in tqdm(range(config.num_steps)):
+
+            if self.stopping_flag:
+                print(f"Stopping at iteration {i} to loss stopping criteria.")
+                break
             # Compute the token gradient
             optim_ids_onehot_grad = self.compute_token_gradient(optim_ids, target_ids) 
 
@@ -264,6 +276,8 @@ class GCG:
                 losses.append(current_loss)
                 if buffer.size == 0 or current_loss < buffer.get_highest_loss():
                     buffer.add(current_loss, optim_ids)
+                    
+            self.stopping_flag = current_loss < self.stopping_point     
 
             optim_ids = buffer.get_best_ids()
             optim_str = tokenizer.batch_decode(optim_ids)[0]
@@ -409,15 +423,18 @@ class GCG:
                 outputs = self.model(inputs_embeds=input_embeds_batch, past_key_values=prefix_cache_batch)
                 logits = outputs.logits
 
-                tmp = input_embeds.shape[1] - target_ids.shape[1]
-                shift_logits = logits[..., tmp-1:-1, :].contiguous()
-                shift_labels = target_ids.repeat(current_batch_size, 1)
-                
-                if self.config.use_mellowmax:
-                    label_logits = torch.gather(shift_logits, -1, shift_labels.unsqueeze(-1)).squeeze(-1)
-                    loss = mellowmax(-label_logits, alpha=self.config.mellowmax_alpha, dim=-1)
+                if self.custom_loss_func is not None:
+                    loss = self.custom_loss_func(logits)
                 else:
-                    loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction="none")
+                    tmp = input_embeds.shape[1] - target_ids.shape[1]
+                    shift_logits = logits[..., tmp-1:-1, :].contiguous()
+                    shift_labels = target_ids.repeat(current_batch_size, 1)
+                    
+                    if self.config.use_mellowmax:
+                        label_logits = torch.gather(shift_logits, -1, shift_labels.unsqueeze(-1)).squeeze(-1)
+                        loss = mellowmax(-label_logits, alpha=self.config.mellowmax_alpha, dim=-1)
+                    else:
+                        loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction="none")
 
                 loss = loss.view(current_batch_size, -1).mean(dim=-1)
                 all_loss.append(loss)
