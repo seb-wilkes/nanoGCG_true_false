@@ -36,7 +36,8 @@ def mellowmax(t: Tensor, alpha=1.0, dim=-1):
    return 1.0 / alpha * (torch.logsumexp(alpha * t, dim=dim) - torch.log(torch.tensor(t.shape[-1], dtype=t.dtype, device=t.device)))
 
 def get_func_token_logits(token_list):
-    f = lambda logits: logits[:, token_list]
+    # only care for the last next-token prediction
+    f = lambda logits: logits[:, -1, token_list]
     return f
 
 def question_loss(prob_true, prob_false, answer_direction, exponent=2.5):
