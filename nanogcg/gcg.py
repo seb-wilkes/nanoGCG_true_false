@@ -36,6 +36,7 @@ class GCGConfig:
 @dataclass
 class GCGResult:
     best_loss: float
+    best_score: float
     best_string: str
     losses: List[float]
     scores: List[float]
