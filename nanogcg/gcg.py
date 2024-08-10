@@ -41,6 +41,7 @@ class GCGResult:
     losses: List[float]
     scores: List[float]
     strings: List[str]
+    number_of_steps: int
 
 class AttackBuffer:
     def __init__(self, size: int):
@@ -245,9 +246,6 @@ class GCG:
         
         for i in tqdm(range(config.num_steps)):
 
-            if self.stopping_flag:
-                print(f"Stopping at iteration {i} to loss stopping criteria.")
-                break
             # Compute the token gradient
             optim_ids_onehot_grad = self.compute_token_gradient(optim_ids, target_ids) 
 
@@ -304,7 +302,7 @@ class GCG:
             optim_strings.append(optim_str)
             
             if config.verbose:
-                print(f"\noptim_str: {optim_str}\nloss: {current_loss}\nscore: {current_score}")
+                print(f"\noptim_str: {optim_str}\nloss: {current_loss}\nProb score: {current_score}")
 
             # TODO: set up buffer properly to handle scores, and understand it
             # if not config.verbose:
@@ -312,6 +310,10 @@ class GCG:
             # else:
             #     print(f"step: {i+1}")
             #     buffer.print_buffer(tokenizer)
+            
+            if self.stopping_flag:
+                print(f"Stopping at iteration {i} to loss stopping criteria.")
+                break
 
         min_loss_index = losses.index(min(losses)) 
 
@@ -322,6 +324,7 @@ class GCG:
             losses=losses,
             scores=scores,
             strings=optim_strings,
+            number_of_steps=i+1
         )
 
         return result
