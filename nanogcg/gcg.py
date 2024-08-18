@@ -410,16 +410,18 @@ class GCG:
         output = model(inputs_embeds=input_embeds, past_key_values=self.prefix_cache)
         logits = output.logits
 
-        # Shift logits so token n-1 predicts token n
-        shift = input_embeds.shape[1] - target_ids.shape[1]
-        shift_logits = logits[..., shift-1:-1, :].contiguous() # (1, num_target_ids, vocab_size)
-        shift_labels = target_ids
-
-        if self.config.use_mellowmax:
-            label_logits = torch.gather(shift_logits, -1, shift_labels.unsqueeze(-1)).squeeze(-1)
-            loss = mellowmax(-label_logits, alpha=self.config.mellowmax_alpha, dim=-1)
+        if self.custom_loss_func is not None:
+            loss = self.custom_loss_func(logits)
         else:
-            loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            # Shift logits so token n-1 predicts token n
+            shift = input_embeds.shape[1] - target_ids.shape[1]
+            shift_logits = logits[..., shift-1:-1, :].contiguous() # (1, num_target_ids, vocab_size)
+            shift_labels = target_ids
+            if self.config.use_mellowmax:
+                label_logits = torch.gather(shift_logits, -1, shift_labels.unsqueeze(-1)).squeeze(-1)
+                loss = mellowmax(-label_logits, alpha=self.config.mellowmax_alpha, dim=-1)
+            else:
+                loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
         optim_ids_onehot_grad = torch.autograd.grad(outputs=[loss], inputs=[optim_ids_onehot])[0]
 
