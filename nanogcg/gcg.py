@@ -17,7 +17,8 @@ class GCGConfig:
     num_steps: int = 250
     optim_str_init: Union[str, List[str]] = "x x x x x x x x x x x x x x x x x x x x"
     search_width: int = 512
-    batch_size: int = None
+    batch_size_1: int = None
+    batch_size_2: int = None
     topk: int = 256
     n_replace: int = 1
     buffer_size: int = 0
@@ -267,7 +268,7 @@ class GCG:
                 new_search_width = sampled_ids.shape[0]
 
                 # Compute loss on all candidate sequences 
-                batch_size = new_search_width if config.batch_size is None else config.batch_size
+                batch_size_1 = new_search_width if config.batch_size_1 is None else config.batch_size_1
                 if not self.special_mode_flag:
                     input_embeds = torch.cat([
                         embedding_layer(sampled_ids),
@@ -280,7 +281,7 @@ class GCG:
                         after_embeds.repeat(new_search_width, 1, 1),
                         self.special_extra_embeds.repeat(new_search_width, 1, 1)
                     ], dim=1)
-                loss = find_executable_batch_size(self.compute_candidates_loss, batch_size)(
+                loss = find_executable_batch_size(self.compute_candidates_loss, batch_size_1)(
                     input_embeds,
                     target_ids
                 )
@@ -388,7 +389,7 @@ class GCG:
 
         Args:
         optim_ids : Tensor, shape = (1, n_optim_ids)
-            the sequence of token ids that are being optimized 
+            the sequence of token ids that are being optimized, which are batch_size_1 copies long
         target_ids : Tensor, shape = (1, n_target_ids)
             the token ids of the target sequence
         """
@@ -402,11 +403,16 @@ class GCG:
 
         # (1, num_optim_tokens, vocab_size) @ (vocab_size, embed_dim) -> (1, num_optim_tokens, embed_dim)
         optim_embeds = optim_ids_onehot @ embedding_layer.weight
+        # now reshape the embeds to be self.config.batch_size_1 copies long
+        optim_embeds = torch.reshape(optim_embeds, (self.config.batch_size_1, optim_ids_onehot.shape[1]//self.config.batch_size_1, -1))
 
+        attack_embeds = torch.repeat(self.after_embeds, self.config.batch_size_1, 1, 1)
+        target_embeds = torch.repeat(self.target_embeds, self.config.batch_size_1, 1, 1)
+        
         if not self.special_mode_flag:
-            input_embeds = torch.cat([optim_embeds, self.after_embeds, self.target_embeds], dim=1)
+            input_embeds = torch.cat([optim_embeds, attack_embeds, target_embeds], dim=1)
         else:
-            input_embeds = torch.cat([optim_embeds, self.after_embeds, self.special_extra_embeds], dim=1)
+            input_embeds = torch.cat([optim_embeds, attack_embeds, target_embeds], dim=1)
         output = model(inputs_embeds=input_embeds, past_key_values=self.prefix_cache)
         logits = output.logits
 
