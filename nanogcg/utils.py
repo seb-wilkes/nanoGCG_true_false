@@ -53,6 +53,20 @@ def get_true_false_loss_func(true_token_list, false_token_list, correct_answer, 
 
     return restricted_loss_func
 
+def get_true_false_loss_func_with_max(true_token_list, false_token_list, correct_answer, exponent=2.5):
+    """Returns a loss function that takes logits and returns the loss."""    
+    
+    answer_direction = 1 if correct_answer.lower() == "true" else 0
+    get_tokens_outputs_only = lambda activations, token_list: activations[:, token_list]
+        
+    def restricted_loss_func(logits):
+        probabilities = softmax(logits[:, -1, :], dim=-1)
+        prob_true = get_tokens_outputs_only(probabilities, true_token_list).max(dim=-1)[0]
+        prob_false = get_tokens_outputs_only(probabilities, false_token_list).max(dim=-1)[0]
+        return question_loss(prob_true, prob_false, answer_direction, exponent)
+
+    return restricted_loss_func
+
 # borrowed from https://github.com/huggingface/accelerate/blob/85a75d4c3d0deffde2fc8b917d9b1ae1cb580eb2/src/accelerate/utils/memory.py#L69
 def should_reduce_batch_size(exception: Exception) -> bool:
     """
